@@ -1962,6 +1962,12 @@ static id formatJSToOC(JSValue *jsval) {
     return obj;
 }
 
+/**
+ 将OC对象（也可是经过JPBoxing包装的OC对象）数组转化为js对象数组
+
+ @param list OC对象数组
+ @return JS对象数组
+ */
 static id _formatOCToJSList(NSArray *list)
 {
     NSMutableArray *arr = [NSMutableArray new];
@@ -1971,6 +1977,12 @@ static id _formatOCToJSList(NSArray *list)
     return arr;
 }
 
+/**
+ 通过字典包装标记OC对象
+
+ @param obj OC对象
+ @return 字典包装标识后的对象
+ */
 static NSDictionary *_wrapObj(id obj)
 {
     if (!obj || obj == _nilObj) {
@@ -1979,6 +1991,12 @@ static NSDictionary *_wrapObj(id obj)
     return @{@"__obj": obj, @"__clsName": NSStringFromClass([obj isKindOfClass:[JPBoxing class]] ? [[((JPBoxing *)obj) unbox] class]: [obj class])};
 }
 
+/**
+ 拆箱后标识为OC对象
+
+ @param obj OC对象
+ @return 标识为OC对象
+ */
 static id _unboxOCObjectToJS(id obj)
 {
     if ([obj isKindOfClass:[NSArray class]]) {
