@@ -29,31 +29,57 @@
     return boxing;  \
 }
 
+/*
+ //装箱操作
+ //JPBOXING_GEN(boxObj, obj, id)等于:
++ (instancetype)boxObj:(id)obj {
+    JPBoxing *boxing = [[JPBoxing alloc] init];
+    boxing.obj = obj;
+    return boxing;
+};
+ */
+
+//装箱操作
 JPBOXING_GEN(boxObj, obj, id)
 JPBOXING_GEN(boxPointer, pointer, void *)
 JPBOXING_GEN(boxClass, cls, Class)
 JPBOXING_GEN(boxWeakObj, weakObj, id)
 JPBOXING_GEN(boxAssignObj, assignObj, id)
 
-- (id)unbox
-{
+/**
+ 拆箱操作 打开被装箱对象
+
+ @return 被装箱的对象
+ */
+- (id)unbox {
     if (self.obj) return self.obj;
     if (self.weakObj) return self.weakObj;
     if (self.assignObj) return self.assignObj;
     if (self.cls) return self.cls;
     return self;
 }
-- (void *)unboxPointer
-{
+
+/**
+ 拆箱操作 获取被装箱对象的指针
+
+ @return 被装箱对象的指针
+ */
+- (void *)unboxPointer {
     return self.pointer;
 }
-- (Class)unboxClass
-{
+
+/**
+ 拆箱操作 获得被装箱对象的类对象
+
+ @return 被装箱对象的类对象
+ */
+- (Class)unboxClass {
     return self.cls;
 }
+
 @end
 
-#pragma mark - Fix iOS7 NSInvocation fatal error
+#pragma mark - 修复 iOS7 NSInvocation 致命错误
 // A fatal error of NSInvocation on iOS7.0.
 // A invocation return 0 when the return type is double/float.
 // http://stackoverflow.com/questions/19874502/nsinvocation-getreturnvalue-with-double-value-produces-0-unexpectedly
@@ -61,15 +87,20 @@ JPBOXING_GEN(boxAssignObj, assignObj, id)
 typedef struct {double d;} JPDouble;
 typedef struct {float f;} JPFloat;
 
-static NSMethodSignature *fixSignature(NSMethodSignature *signature)
-{
+static NSMethodSignature *fixSignature(NSMethodSignature *signature) {
 #if TARGET_OS_IPHONE
-#ifdef __LP64__
+#ifdef __LP64__//64位机器
     if (!signature) {
         return nil;
     }
     
     if ([[UIDevice currentDevice].systemVersion floatValue] < 7.09) {
+        /*
+         strcmp: C/C++函数，比较两个字符串 设这两个字符串为str1，str2，
+         若str1==str2，则返回零；
+         若str1<str2，则返回负数；
+         若str1>str2，则返回正数。
+         */
         BOOL isReturnDouble = (strcmp([signature methodReturnType], "d") == 0);
         BOOL isReturnFloat = (strcmp([signature methodReturnType], "f") == 0);
 
@@ -94,18 +125,17 @@ static NSMethodSignature *fixSignature(NSMethodSignature *signature)
 
 @implementation NSObject (JPFix)
 const static void *JPFixedFlagKey = &JPFixedFlagKey;
-- (NSMethodSignature *)jp_methodSignatureForSelector:(SEL)aSelector
-{
+- (NSMethodSignature *)jp_methodSignatureForSelector:(SEL)aSelector {
     NSMethodSignature *signature = [self jp_methodSignatureForSelector:aSelector];
     return fixSignature(signature);
 }
-+ (void)jp_fixMethodSignature
-{
++ (void)jp_fixMethodSignature {
 #if TARGET_OS_IPHONE
 #ifdef __LP64__
     if ([[UIDevice currentDevice].systemVersion floatValue] < 7.1) {
         NSNumber *flag = objc_getAssociatedObject(self, JPFixedFlagKey);
         if (!flag.boolValue) {
+            //hook methodSignatureForSelector
             SEL originalSelector = @selector(methodSignatureForSelector:);
             SEL swizzledSelector = @selector(jp_methodSignatureForSelector:);
             Method originalMethod = class_getInstanceMethod(self, originalSelector);
@@ -126,46 +156,46 @@ const static void *JPFixedFlagKey = &JPFixedFlagKey;
 
 #pragma mark -
 
-static JSContext *_context;
-static NSString *_regexStr = @"(?<!\\\\)\\.\\s*(\\w+)\\s*\\(";
-static NSString *_replaceStr = @".__c(\"$1\")(";
-static NSRegularExpression* _regex;
-static NSObject *_nullObj;
-static NSObject *_nilObj;
-static NSMutableDictionary *_registeredStruct;
-static NSMutableDictionary *_currInvokeSuperClsName;
-static char *kPropAssociatedObjectKey;
-static BOOL _autoConvert;
-static BOOL _convertOCNumberToString;
-static NSString *_scriptRootDir;
+static JSContext *_context;//JavaScript 上下文
+static NSString *_regexStr = @"(?<!\\\\)\\.\\s*(\\w+)\\s*\\(";//正则字符串
+static NSString *_replaceStr = @".__c(\"$1\")(";//替换的字符串
+static NSRegularExpression* _regex;//正则表达式
+static NSObject *_nullObj;//空对象
+static NSObject *_nilObj;//空对象
+static NSMutableDictionary *_registeredStruct;//注册的结构体
+static NSMutableDictionary *_currInvokeSuperClsName;//当前调用父类名
+static char *kPropAssociatedObjectKey;//属性对象相关的Key
+static BOOL _autoConvert;//自动转换
+static BOOL _convertOCNumberToString;//将objective-c中NSNumber对象转为NSString对象
+static NSString *_scriptRootDir;//JavaScript根目录
 static NSMutableSet *_runnedScript;
 
-static NSMutableDictionary *_JSOverideMethods;
-static NSMutableDictionary *_TMPMemoryPool;
-static NSMutableDictionary *_propKeys;
-static NSMutableDictionary *_JSMethodSignatureCache;
-static NSLock              *_JSMethodSignatureLock;
-static NSRecursiveLock     *_JSMethodForwardCallLock;
-static NSMutableDictionary *_protocolTypeEncodeDict;
-static NSMutableArray      *_pointersToRelease;
+static NSMutableDictionary *_JSOverideMethods;//重写方法集合
+static NSMutableDictionary *_TMPMemoryPool;//类型IMP的函数指针 内存池 集合
+static NSMutableDictionary *_propKeys;//属性 key集合
+static NSMutableDictionary *_JSMethodSignatureCache;//JavaScript 信号方法缓存
+static NSLock              *_JSMethodSignatureLock;//JavaScript 信号方法锁
+static NSRecursiveLock     *_JSMethodForwardCallLock;//JavaScript Forward方法递归锁
+static NSMutableDictionary *_protocolTypeEncodeDict;//协议类型编码容器
+static NSMutableArray      *_pointersToRelease;//指针释放容器
 
 #ifdef DEBUG
 static NSArray *_JSLastCallStack;
 #endif
-
+//异常block
 static void (^_exceptionBlock)(NSString *log) = ^void(NSString *log) {
     NSCAssert(NO, log);
 };
 
 @implementation JPEngine
 
+//强制去掉未声明的选择器的警告
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wundeclared-selector"
 
 #pragma mark - APIS
 
-+ (void)startEngine
-{
++ (void)startEngine {
     if (![JSContext class] || _context) {
         return;
     }
@@ -183,6 +213,10 @@ static void (^_exceptionBlock)(NSString *log) = ^void(NSString *log) {
     };
 #endif
 
+    /**
+     *  在context的执行环境下，为js增加_OC_defineClass方法对象，此js方法可以传参调用OC中的block，下面几个同理
+     */
+    
     context[@"_OC_defineClass"] = ^(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods) {
         return defineClass(classDeclaration, instanceMethods, classMethods);
     };
@@ -351,6 +385,14 @@ static void (^_exceptionBlock)(NSString *log) = ^void(NSString *log) {
     return [self _evaluateScript:script withSourceURL:[NSURL URLWithString:[filePath lastPathComponent]]];
 }
 
+/**
+ 用正则将 js 脚本 format 成类似 __c(methodName) 的形式。
+    如本来是 UIView.alloc().init() ,format 之后变成 UIView.__c(alloc)().__c(init).()
+ 
+ @param script js脚本文件字符串
+ @param resourceURL 设置js调试时的文件名
+ @return JSValue
+ */
 + (JSValue *)_evaluateScript:(NSString *)script withSourceURL:(NSURL *)resourceURL
 {
     if (!script || ![JSContext class]) {
@@ -422,13 +464,40 @@ static const void *propKey(NSString *propName) {
     }
     return (__bridge const void *)(key);
 }
+
+/**
+ 获取添加的属性
+
+ @param slf 发消息的对象
+ @param selector 发消息的选择器
+ @param propName 获取属性的名称
+ @return 属性
+ */
 static id getPropIMP(id slf, SEL selector, NSString *propName) {
     return objc_getAssociatedObject(slf, propKey(propName));
 }
+
+/**
+ 添加属性
+
+ @param slf 发消息的对象
+ @param selector 发消息的选择器
+ @param val 给属性赋值
+ @param propName 属性名称
+ */
 static void setPropIMP(id slf, SEL selector, id val, NSString *propName) {
     objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+/**
+ 判断某个协议中是否包含某个（实例或对象）方法
+
+ @param protocolName 协议名称
+ @param selectorName 选择器名称
+ @param isInstanceMethod 是否是实例方法
+ @param isRequired 是否是必须实现的方法
+ @return 如果协议中没有此方法，返回NULL，如果协议中有此方法，返回此方法参数的类型编码
+ */
 static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorName, BOOL isInstanceMethod, BOOL isRequired)
 {
     Protocol *protocol = objc_getProtocol([trim(protocolName) cStringUsingEncoding:NSUTF8StringEncoding]);
@@ -446,6 +515,13 @@ static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorNam
     return NULL;
 }
 
+/**?
+ 定义协议 : 用js方法替换OC类中的协议方法
+
+ @param protocolDeclaration 协议的声明 <协议名,协议名...>   这种格式的字符串
+ @param instProtocol 实例协议 需要替换的实例方法名以及js方法实现的字典
+ @param clsProtocol 类协议 需要替换的类方法名以及js方法实现的字典
+ */
 static void defineProtocol(NSString *protocolDeclaration, JSValue *instProtocol, JSValue *clsProtocol)
 {
     const char *protocolName = [protocolDeclaration UTF8String];
@@ -546,13 +622,23 @@ static void addMethodToProtocol(Protocol* protocol, NSString *selectorName, NSSt
     protocol_addMethodDescription(protocol, sel, type, YES, isInstance);
 }
 
-static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods)
-{
+/**
+ 用js方法替换OC类中的实例方法和类方法
+
+ @param classDeclaration 类的声明 类名:父类名<协议名,协议名...>   这种格式的字符串
+ @param instanceMethods 实例方法 需要替换的实例方法名以及js方法实现的字典
+ @param classMethods 类方法 需要替换的类方法名以及js方法实现的字典
+ @return 字典 @{@"cls": className} 格式的字典，className表示需要替换方法的类名
+ */
+static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods) {
     NSScanner *scanner = [NSScanner scannerWithString:classDeclaration];
     
-    NSString *className;
-    NSString *superClassName;
-    NSString *protocolNames;
+    NSString *className;//需要替换或者新增的类名
+    NSString *superClassName;//父类名
+    NSString *protocolNames;//遵守的协议名，多个以“,”分隔
+    /**
+     *  通过NSScanner扫描字符classDeclaration，分别给className，superClassName，protocolNames赋值
+     */
     [scanner scanUpToString:@":" intoString:&className];
     if (!scanner.isAtEnd) {
         scanner.scanLocation = scanner.scanLocation + 1;
@@ -563,17 +649,24 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
         }
     }
     
+    /**
+     *  将遵守的协议解析用数组protocols保存
+     */
+    
     if (!superClassName) superClassName = @"NSObject";
     className = trim(className);
     superClassName = trim(superClassName);
     
     NSArray *protocols = [protocolNames length] ? [protocolNames componentsSeparatedByString:@","] : nil;
     
+    /**
+     *  通过className在runtime获得类对象，如cls在内存中不存在，则根据className，superClassName通过runtime创建这个类对象并在内存中注册一个新的类
+     */
     Class cls = NSClassFromString(className);
     if (!cls) {
         Class superCls = NSClassFromString(superClassName);
         if (!superCls) {
-            _exceptionBlock([NSString stringWithFormat:@"can't find the super class %@", superClassName]);
+            _exceptionBlock([NSString stringWithFormat:@"没有发现父类 %@", superClassName]);
             return @{@"cls": className};
         }
         cls = objc_allocateClassPair(superCls, className.UTF8String, 0);
@@ -587,39 +680,49 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
         }
     }
     
+    /**
+     *  如果 i = 0，遍历需要替换的实例方法字典；如果 i = 1，遍历需要替换的类方法字典
+     */
     for (int i = 0; i < 2; i ++) {
-        BOOL isInstance = i == 0;
-        JSValue *jsMethods = isInstance ? instanceMethods: classMethods;
+        BOOL isInstance = i == 0; //如果 i == 0 则isInstace为YES
+        JSValue *jsMethods = isInstance ? instanceMethods: classMethods;//如果isInstance为YES，则jsMethod为实例方法组,否则为类方法组
         
-        Class currCls = isInstance ? cls: objc_getMetaClass(className.UTF8String);
-        NSDictionary *methodDict = [jsMethods toDictionary];
+        Class currCls = isInstance ? cls: objc_getMetaClass(className.UTF8String);//如果isInstance为YES，则currCls为cls，否则currCls为cls类的元类
+        NSDictionary *methodDict = [jsMethods toDictionary];//将JSValue类型的jsMethods转化为OC中的字典类型的methodDict
+        
+        /**
+         *  遍历js方法对象字典
+         */
         for (NSString *jsMethodName in methodDict.allKeys) {
             JSValue *jsMethodArr = [jsMethods valueForProperty:jsMethodName];
-            int numberOfArg = [jsMethodArr[0] toInt32];
+            int numberOfArg = [jsMethodArr[0] toInt32];//获取jsMethodName的参数个数
             NSString *selectorName = convertJPSelectorString(jsMethodName);
             
+            /**
+             *  完善OC方法名selectorName，多参数情况下补齐“:”号
+             */
             if ([selectorName componentsSeparatedByString:@":"].count - 1 < numberOfArg) {
                 selectorName = [selectorName stringByAppendingString:@":"];
             }
             
-            JSValue *jsMethod = jsMethodArr[1];
-            if (class_respondsToSelector(currCls, NSSelectorFromString(selectorName))) {
-                overrideMethod(currCls, selectorName, jsMethod, !isInstance, NULL);
-            } else {
+            JSValue *jsMethod = jsMethodArr[1];//取出js方法对象
+            if (class_respondsToSelector(currCls, NSSelectorFromString(selectorName))) {//判断currCls的实例对象是否能响应selectorName
+                overrideMethod(currCls, selectorName, jsMethod, !isInstance, NULL);//用js方法替换OC方法的实现(其实调用js方法是在forwardInvocation方法中进行的)，这里不太好描述，具体看overrideMethod函数和JPForwardInvocation函数。
+            } else {//如果currCls的实例对象不能响应selectorName
                 BOOL overrided = NO;
-                for (NSString *protocolName in protocols) {
-                    char *types = methodTypesInProtocol(protocolName, selectorName, isInstance, YES);
-                    if (!types) types = methodTypesInProtocol(protocolName, selectorName, isInstance, NO);
-                    if (types) {
+                for (NSString *protocolName in protocols) {//遍历遵守的协议名数组
+                    char *types = methodTypesInProtocol(protocolName, selectorName, isInstance, YES);//判断某个协议中是否包含某个（实例或对象）`必须`实现的方法,如果包含，则得到方法参数列表的类型编码
+                    if (!types) types = methodTypesInProtocol(protocolName, selectorName, isInstance, NO);//判断某个协议中是否包含某个（实例或对象）`可选`实现的方法,如果包含，则得到方法参数列表的类型编码
+                    if (types) {//如果在协议中找到此方法，用js方法替换OC方法的实现
                         overrideMethod(currCls, selectorName, jsMethod, !isInstance, types);
                         free(types);
                         overrided = YES;
                         break;
                     }
                 }
-                if (!overrided) {
+                if (!overrided) {//如果currCls的实例对象不能响应此SEL，遵守的协议中也没有此方法，那么直接在类中添加此方法，方法实现为空，然后用js方法替换此空实现OC方法
                     if (![[jsMethodName substringToIndex:1] isEqualToString:@"_"]) {
-                        NSMutableString *typeDescStr = [@"@@:" mutableCopy];
+                        NSMutableString *typeDescStr = [@"@@:" mutableCopy];//此处表示此方法的返回值为对象，第二个和第三个是默认的执行对象和执行的SEL
                         for (int i = 0; i < numberOfArg; i ++) {
                             [typeDescStr appendString:@"@"];
                         }
@@ -630,14 +733,20 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
         }
     }
     
-    class_addMethod(cls, @selector(getProp:), (IMP)getPropIMP, "@@:@");
-    class_addMethod(cls, @selector(setProp:forKey:), (IMP)setPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(getProp:), (IMP)getPropIMP, "@@:@");//为cls添加找到关联的成员变量的方法
+    class_addMethod(cls, @selector(setProp:forKey:), (IMP)setPropIMP, "v@:@@");//为cls添加关联成员变量的方法
 
     return @{@"cls": className, @"superCls": superClassName};
 }
 
-static JSValue *getJSFunctionInObjectHierachy(id slf, NSString *selectorName)
-{
+/**
+ 通过类和selectorName得到存储在_JSOverideMethods字典中的js方法的JSValue值
+
+ @param slf 你想要检阅的对象
+ @param selectorName 需要替换的selectorName
+ @return js方法对象的JSValue值
+ */
+static JSValue *getJSFunctionInObjectHierachy(id slf, NSString *selectorName) {
     Class cls = object_getClass(slf);
     if (_currInvokeSuperClsName[selectorName]) {
         cls = NSClassFromString(_currInvokeSuperClsName[selectorName]);
@@ -654,6 +763,13 @@ static JSValue *getJSFunctionInObjectHierachy(id slf, NSString *selectorName)
     return func;
 }
 
+/**
+ 自定义所有需要替换方法的对象的forwardInvocation:方法的IMP函数指针实现
+
+ @param assignSlf <#assignSlf description#>
+ @param selector <#selector description#>
+ @param invocation <#invocation description#>
+ */
 static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, NSInvocation *invocation)
 {
 #ifdef DEBUG
@@ -667,25 +783,28 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
     NSString *selectorName = NSStringFromSelector(invocation.selector);
     NSString *JPSelectorName = [NSString stringWithFormat:@"_JP%@", selectorName];
     JSValue *jsFunc = getJSFunctionInObjectHierachy(slf, JPSelectorName);
-    if (!jsFunc) {
+    if (!jsFunc) {//如果slf对象不能响应NSSelectorFromString(JPSelectorName);消息，则使用NSInvocation执行老方法也就是ORIGforwardInvocation:方法
         JPExecuteORIGForwardInvocation(slf, selector, invocation);
         return;
     }
     
-    NSMutableArray *argList = [[NSMutableArray alloc] init];
+    NSMutableArray *argList = [[NSMutableArray alloc] init];//保存js方法需要的参数列表
     if ([slf class] == slf) {
-        [argList addObject:[JSValue valueWithObject:@{@"__clsName": NSStringFromClass([slf class])} inContext:_context]];
+        [argList addObject:[JSValue valueWithObject:@{@"__clsName": NSStringFromClass([slf class])} inContext:_context]];//invocation参数0，也就是target作为js方法的第一个参数
     } else if ([selectorName isEqualToString:@"dealloc"]) {
         [argList addObject:[JPBoxing boxAssignObj:slf]];
         deallocFlag = YES;
-    } else {
+    } else {//否则slf是实例对象，用JPBoxing包装弱引用对象
         [argList addObject:[JPBoxing boxWeakObj:slf]];
     }
     
     for (NSUInteger i = 2; i < numberOfArguments; i++) {
         const char *argumentType = [methodSignature getArgumentTypeAtIndex:i];
-        switch(argumentType[0] == 'r' ? argumentType[1] : argumentType[0]) {
+        switch(argumentType[0] == 'r' ? argumentType[1] : argumentType[0]) {//如果参数的类型编码的第一个字符是‘r’,则取第二个字符，r表示const，详情请见 Apple 文档
         
+            /*
+             此宏的作用是通过`参数类型编码字符`得到`参数的类型`，并用此类型的实例对象地址设置invocation的第i个参数
+             */
             #define JP_FWD_ARG_CASE(_typeChar, _type) \
             case _typeChar: {   \
                 _type arg;  \
@@ -693,6 +812,10 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                 [argList addObject:@(arg)]; \
                 break;  \
             }
+                
+            /**
+             *  如果是各种基本类型，转化成NSNuber类型传给js
+             */
             JP_FWD_ARG_CASE('c', char)
             JP_FWD_ARG_CASE('C', unsigned char)
             JP_FWD_ARG_CASE('s', short)
@@ -706,7 +829,8 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
             JP_FWD_ARG_CASE('f', float)
             JP_FWD_ARG_CASE('d', double)
             JP_FWD_ARG_CASE('B', BOOL)
-            case '@': {
+                
+            case '@': {//如果是实例对象类型，直接传__unsafe_unretained id 类型
                 __unsafe_unretained id arg;
                 [invocation getArgument:&arg atIndex:i];
                 if ([arg isKindOfClass:NSClassFromString(@"NSBlock")]) {
@@ -716,7 +840,7 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                 }
                 break;
             }
-            case '{': {
+            case '{': {//如果是结构体
                 NSString *typeString = extractStructName([NSString stringWithUTF8String:argumentType]);
                 #define JP_FWD_ARG_STRUCT(_type, _transFunc) \
                 if ([typeString rangeOfString:@#_type].location != NSNotFound) {    \
@@ -747,27 +871,27 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                 
                 break;
             }
-            case ':': {
+            case ':': {//如果是选择器类型，直接传字符串给js
                 SEL selector;
                 [invocation getArgument:&selector atIndex:i];
                 NSString *selectorName = NSStringFromSelector(selector);
                 [argList addObject:(selectorName ? selectorName: _nilObj)];
                 break;
             }
-            case '^':
-            case '*': {
+            case '^'://指针类型
+            case '*': {//C语言字符串类型，用JPBoxing包装指针传递给js
                 void *arg;
                 [invocation getArgument:&arg atIndex:i];
                 [argList addObject:[JPBoxing boxPointer:arg]];
                 break;
             }
-            case '#': {
+            case '#': {//类类型，用JPBoxing包装类传递给js
                 Class arg;
                 [invocation getArgument:&arg atIndex:i];
                 [argList addObject:[JPBoxing boxClass:arg]];
                 break;
             }
-            default: {
+            default: {//不能识别的类型
                 NSLog(@"error type %s", argumentType);
                 break;
             }
@@ -787,11 +911,11 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
         }
     }
     
-    NSArray *params = _formatOCToJSList(argList);
+    NSArray *params = _formatOCToJSList(argList);//将参数列表中的OC类型转化成JS类型
     char returnType[255];
-    strcpy(returnType, [methodSignature methodReturnType]);
+    strcpy(returnType, [methodSignature methodReturnType]);//获得方法返回值的类型编码
     
-    // Restore the return type
+    // 恢复返回类型
     if (strcmp(returnType, @encode(JPDouble)) == 0) {
         strcpy(returnType, @encode(double));
     }
@@ -799,8 +923,11 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
         strcpy(returnType, @encode(float));
     }
 
-    switch (returnType[0] == 'r' ? returnType[1] : returnType[0]) {
-        #define JP_FWD_RET_CALL_JS \
+    switch (returnType[0] == 'r' ? returnType[1] : returnType[0]) {//如果方法返回值的类型编码的第一个字符是‘r’,则取第二个字符
+            /*
+             * 此宏的作用是传参转发消息给js方法，其实就是调用js方法
+             */
+            #define JP_FWD_RET_CALL_JS \
             JSValue *jsval; \
             [_JSMethodForwardCallLock lock];   \
             jsval = [jsFunc callWithArguments:params]; \
@@ -817,6 +944,9 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                 [_JSMethodForwardCallLock unlock];  \
             }
 
+            /*
+             * 此宏的作用执行js方法并根据invocation的返回的值类型编码字符设置的js方法的返回值类型，因为js方法的返回值类型都是JSValue需要转换，用于返回值是id,指针，类，选择器类型
+             */
         #define JP_FWD_RET_CASE_RET(_typeChar, _type, _retCode)   \
             case _typeChar : { \
                 JP_FWD_RET_CALL_JS \
@@ -825,6 +955,9 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                 break;  \
             }
 
+            /**
+             *  此宏的作用执行js方法并根据invocation的返回的值类型编码字符设置的js方法的返回值类型，因为js方法的返回值类型都是JSValue需要转换，用于返回值是C语言基本类型
+             */
         #define JP_FWD_RET_CASE(_typeChar, _type, _typeSelector)   \
             JP_FWD_RET_CASE_RET(_typeChar, _type, _type ret = [[jsval toObject] _typeSelector];)   \
 
@@ -872,12 +1005,12 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
         JP_FWD_RET_CASE('d', double, doubleValue)
         JP_FWD_RET_CASE('B', BOOL, boolValue)
 
-        case 'v': {
+        case 'v': {//方法返回值类型为void，直接执行js方法
             JP_FWD_RET_CALL_JS
             break;
         }
         
-        case '{': {
+        case '{': {//如果返回值为结构体，JavaScriptCore原生支持toRect，toPoint，toSize，toRange类型
             NSString *typeString = extractStructName([NSString stringWithUTF8String:returnType]);
             #define JP_FWD_RET_STRUCT(_type, _funcSuffix) \
             if ([typeString rangeOfString:@#_type].location != NSNotFound) {    \
@@ -891,7 +1024,7 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
             JP_FWD_RET_STRUCT(CGSize, toSize)
             JP_FWD_RET_STRUCT(NSRange, toRange)
             
-            @synchronized (_context) {
+            @synchronized (_context) {//如果不是原生支持的结构体类型，尝试结构体类型扩展中的结构体
                 NSDictionary *structDefine = _registeredStruct[typeString];
                 if (structDefine) {
                     size_t size = sizeOfStructTypes(structDefine[@"types"]);
@@ -928,6 +1061,13 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
     }
 }
 
+/**
+ //如果sef对象不能响应JPSelector消息，则使用NSInvocation执行老方法也就是ORIGforwardInvocation:方法
+
+ @param slf <#slf description#>
+ @param selector <#selector description#>
+ @param invocation <#invocation description#>
+ */
 static void JPExecuteORIGForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
 {
     SEL origForwardSelector = @selector(ORIGforwardInvocation:);
@@ -952,6 +1092,11 @@ static void JPExecuteORIGForwardInvocation(id slf, SEL selector, NSInvocation *i
     }
 }
 
+/**
+ 初始化_JSOVrideMethods字典，key为cls的Value为一个字典
+
+ @param cls 类对象
+ */
 static void _initJPOverideMethods(Class cls) {
     if (!_JSOverideMethods) {
         _JSOverideMethods = [[NSMutableDictionary alloc] init];
@@ -961,18 +1106,30 @@ static void _initJPOverideMethods(Class cls) {
     }
 }
 
+/**
+ 用js新方法替换原有方法的实现
+
+ @param cls 实例对象的类
+ @param selectorName 方法名
+ @param function js方法对象
+ @param isClassMethod 是否是类方法
+ @param typeDescription 类型编码
+ */
 static void overrideMethod(Class cls, NSString *selectorName, JSValue *function, BOOL isClassMethod, const char *typeDescription)
 {
     SEL selector = NSSelectorFromString(selectorName);
     
     if (!typeDescription) {
-        Method method = class_getInstanceMethod(cls, selector);
-        typeDescription = (char *)method_getTypeEncoding(method);
+        Method method = class_getInstanceMethod(cls, selector);//通过类和selector得到method
+        typeDescription = (char *)method_getTypeEncoding(method);// 获取描述方法参数和返回值类型的字符串，类型编码
     }
     
-    IMP originalImp = class_respondsToSelector(cls, selector) ? class_getMethodImplementation(cls, selector) : NULL;
+    IMP originalImp = class_respondsToSelector(cls, selector) ? class_getMethodImplementation(cls, selector) : NULL;//通过类和selector得到原方法的IMP指针
     
-    IMP msgForwardIMP = _objc_msgForward;
+    /**
+     *  _objc_msgForward解释: OC底层负责转发的函数,调用这个，就会转发去到这个类的 forwardInvocation:方法
+     */
+    IMP msgForwardIMP = _objc_msgForward;//将msgForwardIMP函数指向_objc_msgForward
     #if !defined(__arm64__)
         if (typeDescription[0] == '{') {
             //In some cases that returns struct, we should use the '_stret' API:
@@ -985,14 +1142,21 @@ static void overrideMethod(Class cls, NSString *selectorName, JSValue *function,
         }
     #endif
 
+    /**
+     *  将cls的forwardInvocation:方法的IMP函数指针实现替换成(IMP)JPForwardInvocation)，
+     *  并为cls新增一个selector名为ORIGforwardInvocation:方法的IMP函数指针实现为原方法forwardInvocation:的IMP函数指针实现
+     */
     if (class_getMethodImplementation(cls, @selector(forwardInvocation:)) != (IMP)JPForwardInvocation) {
-        IMP originalForwardImp = class_replaceMethod(cls, @selector(forwardInvocation:), (IMP)JPForwardInvocation, "v@:@");
+        IMP originalForwardImp = class_replaceMethod(cls, @selector(forwardInvocation:), (IMP)JPForwardInvocation, "v@:@");//forwardInvocation 的 param type encoding
         if (originalForwardImp) {
-            class_addMethod(cls, @selector(ORIGforwardInvocation:), originalForwardImp, "v@:@");
+            class_addMethod(cls, @selector(ORIGforwardInvocation:), originalForwardImp, "v@:@");//第一个v表示返回值类型为void，由于方法参数签名的第一和第二个参数分别是调用对象的类型和调用的SEL的类型，所以第二个是@和第三个是:，第四个@表示方法有一个参数为对象类型
         }
     }
 
     [cls jp_fixMethodSignature];
+    /**
+     *  为cls增加selector名为ORIG开头加原selector名，方法的IMP函数指针实现为原方法的IMP函数指针实现的方法
+     */
     if (class_respondsToSelector(cls, selector)) {
         NSString *originalSelectorName = [NSString stringWithFormat:@"ORIG%@", selectorName];
         SEL originalSelector = NSSelectorFromString(originalSelectorName);
@@ -1001,23 +1165,38 @@ static void overrideMethod(Class cls, NSString *selectorName, JSValue *function,
         }
     }
     
+    /**
+     *  为cls增加selector名为_JP开头加原selector名，方法实现为任意IMP
+     */
     NSString *JPSelectorName = [NSString stringWithFormat:@"_JP%@", selectorName];
     
     _initJPOverideMethods(cls);
-    _JSOverideMethods[cls][JPSelectorName] = function;
+    _JSOverideMethods[cls][JPSelectorName] = function;//将js的function存储到_JSOverideMethods字典中
     
-    // Replace the original selector at last, preventing threading issus when
-    // the selector get called during the execution of `overrideMethod`
+    /*
+     最后，替换原来的选择器，防止在执行`overrideMethod`方法时`选择器`被调用造成线程问题
+     */
     class_replaceMethod(cls, selector, msgForwardIMP, typeDescription);
 }
 
 #pragma mark -
+
+/**
+ 给对象发消息（调用某个方法）
+
+ @param className 类名   //类方法是需要传，实例方法不需要
+ @param selectorName 选择器名字
+ @param arguments 方法参数列表
+ @param instance 被JSValue保存的实例对象指针  //类方法不需要传，实例方法需要传
+ @param isSuper 是否是调用父类的方法，      //类方法不需要传，实例方法需要传
+ @return 方法返回值
+ */
 static id callSelector(NSString *className, NSString *selectorName, JSValue *arguments, JSValue *instance, BOOL isSuper)
 {
     NSString *realClsName = [[instance valueForProperty:@"__realClsName"] toString];
    
     if (instance) {
-        instance = formatJSToOC(instance);
+        instance = formatJSToOC(instance);//将JSValue类型对象转成id类型OC对象
         if (class_isMetaClass(object_getClass(instance))) {
             className = NSStringFromClass((Class)instance);
             instance = nil;
@@ -1027,7 +1206,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     }
     id argumentsObj = formatJSToOC(arguments);
     
-    if (instance && [selectorName isEqualToString:@"toJS"]) {
+    if (instance && [selectorName isEqualToString:@"toJS"]) {//如果是toJS方法，则包装直接传OC的数组，字典，字符串，js不保存地址，直接转成相应js的数组，字典，字符串
         if ([instance isKindOfClass:[NSString class]] || [instance isKindOfClass:[NSDictionary class]] || [instance isKindOfClass:[NSArray class]] || [instance isKindOfClass:[NSDate class]]) {
             return _unboxOCObjectToJS(instance);
         }
@@ -1037,7 +1216,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     SEL selector = NSSelectorFromString(selectorName);
     
     NSString *superClassName = nil;
-    if (isSuper) {
+    if (isSuper) {//如果是父类的方法，替换父类的方法。
         NSString *superSelectorName = [NSString stringWithFormat:@"SUPER_%@", selectorName];
         SEL superSelector = NSSelectorFromString(superSelectorName);
         
@@ -1069,10 +1248,10 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     
     NSInvocation *invocation;
     NSMethodSignature *methodSignature;
-    if (!_JSMethodSignatureCache) {
+    if (!_JSMethodSignatureCache) {//使用_JSMethodSignatureCache保存方法的签名，起到缓存的作用，在反复调用统一SEL时减少资源开销
         _JSMethodSignatureCache = [[NSMutableDictionary alloc]init];
     }
-    if (instance) {
+    if (instance) {// 设置invocation的Target参数
         [_JSMethodSignatureLock lock];
         if (!_JSMethodSignatureCache[cls]) {
             _JSMethodSignatureCache[(id<NSCopying>)cls] = [[NSMutableDictionary alloc]init];
@@ -1100,22 +1279,24 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
         invocation= [NSInvocation invocationWithMethodSignature:methodSignature];
         [invocation setTarget:cls];
     }
-    [invocation setSelector:selector];
+    [invocation setSelector:selector];// 设置invocation的selector参数
     
     NSUInteger numberOfArguments = methodSignature.numberOfArguments;
     NSInteger inputArguments = [(NSArray *)argumentsObj count];
     if (inputArguments > numberOfArguments - 2) {
-        // calling variable argument method, only support parameter type `id` and return type `id`
+        // 调用变量参数方法，只支持参数类型`id`和返回类型`id`
         id sender = instance != nil ? instance : cls;
         id result = invokeVariableParameterMethod(argumentsObj, methodSignature, sender, selector);
         return formatOCToJS(result);
     }
     
-    for (NSUInteger i = 2; i < numberOfArguments; i++) {
+    for (NSUInteger i = 2; i < numberOfArguments; i++) {//invocation的第0个argument是target,第1个是SEL，所以从第2个开始取参数的类型编码，设置invocation的参数
         const char *argumentType = [methodSignature getArgumentTypeAtIndex:i];
         id valObj = argumentsObj[i-2];
         switch (argumentType[0] == 'r' ? argumentType[1] : argumentType[0]) {
-                
+                /*
+                 * 当参数是以下基础类型数据的取值方法
+                 */
                 #define JP_CALL_ARG_CASE(_typeString, _type, _selector) \
                 case _typeString: {                              \
                     _type value = [valObj _selector];                     \
@@ -1123,6 +1304,10 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
                     break; \
                 }
                 
+                /**
+                 *  以下主要都是根据参数的类型编码做相应的取值操作，然后为invocation设置参数，关于类型编码在overrideMethod函数中已有很多注释，不在赘述
+                 *  类型编码官方有说明，不解的同学可以去查看：https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
+                 */
                 JP_CALL_ARG_CASE('c', char, charValue)
                 JP_CALL_ARG_CASE('C', unsigned char, unsignedCharValue)
                 JP_CALL_ARG_CASE('s', short, shortValue)
@@ -1211,7 +1396,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
                     [invocation setArgument:&valObj atIndex:i];
                     break;
                 }
-                if ([(JSValue *)arguments[i-2] hasProperty:@"__isBlock"]) {
+                if ([(JSValue *)arguments[i-2] hasProperty:@"__isBlock"]) {//如果参数是block
                     JSValue *blkJSVal = arguments[i-2];
                     Class JPBlockClass = NSClassFromString(@"JPBlock");
                     if (JPBlockClass && ![blkJSVal[@"blockObj"] isUndefined]) {
@@ -1219,7 +1404,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
                         [invocation setArgument:&cb atIndex:i];
                         Block_release((__bridge void *)cb);
                     } else {
-                        __autoreleasing id cb = genCallbackBlock(arguments[i-2]);
+                        __autoreleasing id cb = genCallbackBlock(arguments[i-2]);//转化成为ocblock
                         [invocation setArgument:&cb atIndex:i];
                     }
                 } else {
@@ -1245,7 +1430,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     }
     
     char returnType[255];
-    strcpy(returnType, [methodSignature methodReturnType]);
+    strcpy(returnType, [methodSignature methodReturnType]);//方法返回值类型编码
     
     // Restore the return type
     if (strcmp(returnType, @encode(JPDouble)) == 0) {
@@ -1256,8 +1441,8 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     }
 
     id returnValue;
-    if (strncmp(returnType, "v", 1) != 0) {
-        if (strncmp(returnType, "@", 1) == 0) {
+    if (strncmp(returnType, "v", 1) != 0) {//返回值不为空  strncmp()函数的作用是比较参数1和参数2的前参数3个字符是否相等，相等返回0，不相等返回非0
+        if (strncmp(returnType, "@", 1) == 0) {//返回值是一个对象
             void *result;
             [invocation getReturnValue:&result];
             
@@ -1270,7 +1455,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
             }
             return formatOCToJS(returnValue);
             
-        } else {
+        } else {//如返回值不是对象
             switch (returnType[0] == 'r' ? returnType[1] : returnType[0]) {
                     
                 #define JP_CALL_RET_CASE(_typeString, _type) \
@@ -1281,6 +1466,10 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
                     break; \
                 }
                     
+                /**
+                 *  以下主要都是根据参数的类型编码做相应的取值操作，取的值是执行invoke之后的返回值，关于类型编码在overrideMethod函数中已有很多注释，不在赘述
+                 *  类型编码官方有说明，不解的同学可以去查看：https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
+                 */
                 JP_CALL_RET_CASE('c', char)
                 JP_CALL_RET_CASE('C', unsigned char)
                 JP_CALL_RET_CASE('s', short)
@@ -1639,6 +1828,12 @@ static NSDictionary *getDictOfStruct(void *structData, NSDictionary *structDefin
     return dict;
 }
 
+/**
+ 根据结构体类型编码字符串得到结构体类型的类名字符串
+
+ @param typeEncodeString 类型编码字符串
+ @return 结构体类型的类名字符串
+ */
 static NSString *extractStructName(NSString *typeEncodeString)
 {
     NSArray *array = [typeEncodeString componentsSeparatedByString:@"="];
@@ -1657,36 +1852,61 @@ static NSString *extractStructName(NSString *typeEncodeString)
 
 #pragma mark - Utils
 
-static NSString *trim(NSString *string)
-{
+/**
+ 去除字符串中的空格
+
+ @param string 字符串
+ @return 去掉空格后的字符串
+ */
+static NSString *trim(NSString *string) {
     return [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
-static BOOL blockTypeIsObject(NSString *typeString)
-{
+/**
+ 判断blcok参数类型是否是引用类型
+
+ @param typeString 参数类型字符串
+ @return YES:引用类型 NO:不是引用类型
+ */
+static BOOL blockTypeIsObject(NSString *typeString) {
     return [typeString rangeOfString:@"*"].location != NSNotFound || [typeString isEqualToString:@"id"];
 }
 
-static BOOL blockTypeIsScalarPointer(NSString *typeString)
-{
+/**
+ 判断blcok参数类型是否是标准指针类型
+
+ @param typeString 参数类型字符串
+ @return YES:是标准指针类型 NO:不是标准指针类型
+ */
+static BOOL blockTypeIsScalarPointer(NSString *typeString) {
     NSUInteger location = [typeString rangeOfString:@"*"].location;
     NSString *typeWithoutAsterisk = trim([typeString stringByReplacingOccurrencesOfString:@"*" withString:@""]);
     
-    return (location == typeString.length-1 &&
-            !NSClassFromString(typeWithoutAsterisk));
+    return (location == typeString.length-1 && !NSClassFromString(typeWithoutAsterisk));
 }
 
-static NSString *convertJPSelectorString(NSString *selectorString)
-{
+/**
+ 将jsMethodName的js方法名转化为OC方法名 类似js方法名是 `abc_def_ghi_jkl_mno`，转化之后变成 `abc:def:ghi:jkl:mno`
+
+ @param selectorString 选择器字符串
+ @return 转化后的字符串
+ */
+static NSString *convertJPSelectorString(NSString *selectorString) {
     NSString *tmpJSMethodName = [selectorString stringByReplacingOccurrencesOfString:@"__" withString:@"-"];
     NSString *selectorName = [tmpJSMethodName stringByReplacingOccurrencesOfString:@"_" withString:@":"];
     return [selectorName stringByReplacingOccurrencesOfString:@"-" withString:@"_"];
 }
 
-#pragma mark - Object format
+#pragma mark - Object format (格式化)
 
-static id formatOCToJS(id obj)
-{
+/**
+ OC转JS
+obj如果是string，dictionary，array就 装箱之后通过 _wrapObj 标识对象返回； obj如果是 NSNumber 等基本数据类型或者是 JSValue 类型直接返回； 普通对象通过 _wrapObj 标识对象
+ 
+ @param obj 经过JPBoxing初步包装的OC对象
+ @return 最终需要包装成的模样 假设源OC对象obj  基本数据NSBumber.obj
+ */
+static id formatOCToJS(id obj) {
     if ([obj isKindOfClass:[NSString class]] || [obj isKindOfClass:[NSDictionary class]] || [obj isKindOfClass:[NSArray class]] || [obj isKindOfClass:[NSDate class]]) {
         return _autoConvert ? obj: _wrapObj([JPBoxing boxObj:obj]);
     }
@@ -1699,8 +1919,13 @@ static id formatOCToJS(id obj)
     return _wrapObj(obj);
 }
 
-static id formatJSToOC(JSValue *jsval)
-{
+/**
+ 将JSValue转化成id类型OC对象
+
+ @param jsval JSValue对象
+ @return id类型OC对象
+ */
+static id formatJSToOC(JSValue *jsval) {
     id obj = [jsval toObject];
     if (!obj || [obj isKindOfClass:[NSNull class]]) return _nilObj;
     
